@@ -32,7 +32,6 @@ class Cache:
             with open(self.cache_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            # Check expiration
             if time.time() - data.get("_timestamp", 0) > self.exp:
                 return {}
 
@@ -76,7 +75,6 @@ class Time:
         """Parse time string to Time object."""
         from datetime import datetime
         try:
-            # Try parsing ISO format
             dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
             t = Time()
             t.timestamp = dt.timestamp()
@@ -107,32 +105,47 @@ def get_logger(name: str) -> logging.Logger:
 class Network:
     """Async HTTP client with rate limiting."""
 
-    HTTP_S = asyncio.Semaphore(3)  # Max concurrent requests
+    HTTP_S = asyncio.Semaphore(3)
 
     @staticmethod
-    async def request(
+    async def request_json(
         url: str,
-        method: str = "GET",
         params: dict = None,
-        headers: dict = None,
         log=None,
         timeout: int = 30,
-    ) -> Optional[dict]:
-        """Make async HTTP request and return JSON data."""
+    ) -> Optional[list]:
+        """Make async HTTP request and return JSON data (list)."""
         timeout_obj = aiohttp.ClientTimeout(total=timeout)
 
         async with aiohttp.ClientSession(timeout=timeout_obj) as session:
             try:
-                async with session.request(
-                    method,
-                    url,
-                    params=params,
-                    headers=headers,
-                ) as response:
+                async with session.get(url, params=params) as response:
                     if response.status == 200:
-                        # Await the json() coroutine - THIS WAS THE FIX
                         data = await response.json()
                         return data
+                    elif log:
+                        log.warning(f"Request failed: {response.status}")
+                    return None
+            except Exception as e:
+                if log:
+                    log.warning(f"Request error: {e}")
+                return None
+
+    @staticmethod
+    async def request_html(
+        url: str,
+        log=None,
+        timeout: int = 30,
+    ) -> Optional[dict]:
+        """Make async HTTP request and return response with content."""
+        timeout_obj = aiohttp.ClientTimeout(total=timeout)
+
+        async with aiohttp.ClientSession(timeout=timeout_obj) as session:
+            try:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        content = await response.text()
+                        return {"content": content, "status": response.status}
                     elif log:
                         log.warning(f"Request failed: {response.status}")
                     return None
@@ -167,31 +180,6 @@ class Network:
 class Leagues:
     """Team logo and EPG info database."""
 
-    # Sport-specific team logos and EPG mappings
-    DATA = {
-        "Football": {
-            "Manchester City": ("382", "https://a.espncdn.com/i/teamlogos/soccer/500/382.png"),
-            "Barcelona": ("83", "https://a.espncdn.com/i/teamlogos/soccer/500/83.png"),
-            "Real Madrid": ("86", "https://a.espncdn.com/i/teamlogos/soccer/500/86.png"),
-            "PSG": ("160", "https://a.espncdn.com/i/teamlogos/soccer/500/160.png"),
-            "Liverpool": ("231", "https://a.espncdn.com/i/teamlogos/soccer/500/231.png"),
-        },
-        "Basketball": {
-            "Lakers": ("1610609947", "https://a.espncdn.com/i/teamlogos/nba/500/scoreboard/lal.png"),
-            "Warriors": ("1610612744", "https://a.espncdn.com/i/teamlogos/nba/500/scoreboard/gsw.png"),
-            "Celtics": ("1610612738", "https://a.espncdn.com/i/teamlogos/nba/500/scoreboard/bos.png"),
-        },
-        "Baseball": {
-            "Yankees": ("147", "https://a.espncdn.com/i/teamlogos/mlb/500/scoreboard/nyy.png"),
-            "Dodgers": ("119", "https://a.espncdn.com/i/teamlogos/mlb/500/scoreboard/lad.png"),
-        },
-        "Hockey": {
-            "Rangers": ("166", "https://a.espncdn.com/i/teamlogos/nhl/500/scoreboard/nyr.png"),
-            "Bruins": ("130", "https://a.espncdn.com/i/teamlogos/nhl/500/scoreboard/bos.png"),
-        },
-    }
-
-    # League logos
     LEAGUE_LOGOS = {
         "Football": "https://a.espncdn.com/i/teamlogos/soccer/500/_default.png",
         "Basketball": "https://a.espncdn.com/i/teamlogos/nba/500/_default.png",
