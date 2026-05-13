@@ -1,6 +1,7 @@
 from functools import partial
 import json
 import importlib.util
+from zoneinfo import ZoneInfo
 
 # Import selectolax
 from selectolax.parser import HTMLParser
@@ -84,7 +85,7 @@ async def get_events() -> list[dict[str, str]]:
     ):
         return events
 
-    now = Time.clean(Time.now())
+    now = Time.now()
 
     api_data: list[dict] = r.json()
 
@@ -102,7 +103,8 @@ async def get_events() -> list[dict[str, str]]:
 
         event_dt = Time.from_str(event_time, timezone="CET")
 
-        if event_dt.date() != now.date():
+        # Compare dates in same timezone (CET)
+        if event_dt.date() != now.astimezone(ZoneInfo("CET")).date():
             continue
 
         if not (sport := CATEGORIES.get(category_id)):
@@ -123,10 +125,16 @@ async def get_events() -> list[dict[str, str]]:
 async def scrape() -> None:
     cached_urls = CACHE_FILE.load()
 
-    if cached_urls and urls.update({k: v for k, v in cached_urls.items() if v.get("url")}):
-        log.info(f"Loaded {len(urls)} event(s) from cache")
-
-        return
+    if cached_urls:
+        valid_items = {k: v for k, v in cached_urls.items() if v.get("url")}
+        if valid_items:
+            urls.update(valid_items)
+            log.info(f"Loaded {len(urls)} event(s) from cache")
+            # Export from cache for GitHub Actions
+            if urls:
+                export_to_file("streams.json")
+                log.info("Exported streams.json from cache")
+            return
 
     log.info('Scraping from "https://streamcenter.xyz"')
 
@@ -179,6 +187,11 @@ async def scrape() -> None:
         log.info("No events found")
 
     CACHE_FILE.write(cached_urls)
+
+    # Always export to file for GitHub Actions
+    if urls:
+        export_to_file("streams.json")
+        log.info("Exported streams.json")
 
 
 def export() -> str:
