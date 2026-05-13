@@ -117,8 +117,8 @@ class Network:
         headers: dict = None,
         log=None,
         timeout: int = 30,
-    ) -> Optional[aiohttp.ClientResponse]:
-        """Make async HTTP request."""
+    ) -> Optional[dict]:
+        """Make async HTTP request and return JSON data."""
         timeout_obj = aiohttp.ClientTimeout(total=timeout)
 
         async with aiohttp.ClientSession(timeout=timeout_obj) as session:
@@ -130,7 +130,9 @@ class Network:
                     headers=headers,
                 ) as response:
                     if response.status == 200:
-                        return response
+                        # Await the json() coroutine - THIS WAS THE FIX
+                        data = await response.json()
+                        return data
                     elif log:
                         log.warning(f"Request failed: {response.status}")
                     return None
