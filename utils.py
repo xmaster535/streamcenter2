@@ -1,7 +1,8 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import aiohttp
 from pathlib import Path
 
@@ -43,9 +44,10 @@ class Time:
     @staticmethod
     def from_str(time_str, timezone="CET"):
         try:
-            return datetime.fromisoformat(time_str.replace("Z", ""))
+            dt = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+            return dt.astimezone(ZoneInfo(timezone))
         except ValueError:
-            return datetime.utcnow()
+            return datetime.now(ZoneInfo(timezone))
 
 # Leagues & TVG Info
 class leagues:
