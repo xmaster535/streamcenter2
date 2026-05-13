@@ -2,17 +2,12 @@ from functools import partial
 import json
 import importlib.util
 import asyncio
-import os
-import sys
 
-# Import selectolax
 from selectolax.parser import HTMLParser
 
-# Try relative import first (for package), fallback to absolute
 try:
     from .utils import Cache, Time, get_logger, leagues, network
 except ImportError:
-    # For direct execution or GitHub Actions
     spec = importlib.util.spec_from_file_location("utils", "utils.py")
     utils = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(utils)
@@ -46,11 +41,13 @@ CATEGORIES = {
 
 
 async def process_event(url: str, url_num: int) -> dict | None:
-    if not (html_data := await network.request(url, log=log)):
+    # For HTML pages - get iframe src
+    html_data = await network.request_html(url, log=log)
+    if not html_data:
         log.warning(f"URL {url_num}) Failed to load url.")
         return None
 
-    soup = HTMLParser(html_data.content)
+    soup = HTMLParser(html_data["content"])
 
     iframe = soup.css_first("iframe")
 
@@ -63,7 +60,6 @@ async def process_event(url: str, url_num: int) -> dict | None:
     m3u8_id = iframe_src.rsplit("=", 1)[-1]
     m3u8_url = f"https://mainstreams.pro/hls/{m3u8_id}.m3u8"
 
-    # Fixed referer and origin for streamcenter.xyz
     referer_url = "https://streamcenter.xyz/"
     origin = "https://streamcenter.xyz"
 
@@ -77,27 +73,22 @@ async def process_event(url: str, url_num: int) -> dict | None:
 async def get_events() -> list[dict[str, str]]:
     events = []
 
-    if not (
-        r := await network.request(
-            API_URL,
-            params={"pageNumber": 1, "pageSize": 500},
-            log=log,
-        )
-    ):
+    # Use request_json for API - returns list directly
+    api_data = await network.request_json(
+        API_URL,
+        params={"pageNumber": 1, "pageSize": 500},
+        log=log,
+    )
+
+    if not api_data:
         return events
 
     now = Time.clean(Time.now())
 
-    # r is already a list (JSON decoded), not a response object
-    api_data: list[dict] = r
-
     for stream_group in api_data:
         category_id: int = stream_group.get("categoryId")
-
         name: str = stream_group.get("gameName")
-
         iframe: str = stream_group.get("videoUrl")
-
         event_time: str = stream_group.get("beginPartie")
 
         if not (name and category_id and iframe and event_time):
@@ -131,7 +122,6 @@ async def scrape() -> None:
 
     if cached_urls and urls.update({k: v for k, v in cached_urls.items() if v.get("url")}):
         log.info(f"Loaded {len(urls)} event(s) from cache")
-
         return
 
     log.info('Scraping from "https://streamcenter.xyz"')
@@ -207,17 +197,14 @@ def export_to_list() -> list:
     """Convert URLs dict to app-compatible list format."""
     result = []
     for key, data in urls.items():
-        # Parse sport from key [Sport] Event (TAG)
         sport = key.split("]")[0].replace("[", "").strip()
 
-        # Get time from timestamp
         ts = data.get("timestamp", 0)
         from datetime import datetime, timezone
         dt = datetime.fromtimestamp(ts, tz=timezone.utc)
         time_str = dt.strftime("%H:%M:%S")
         date_str = dt.strftime("%d/%m/%Y")
 
-        # Build full link with headers
         m3u8_url = data.get("url", "")
         referer = data.get("referer", "https://streamcenter.xyz")
         origin = data.get("origin", "https://streamcenter.xyz")
@@ -230,23 +217,17 @@ def export_to_list() -> list:
             f"&Origin={origin}"
         )
 
-        # Get event name without sport tag
         event_name = key.split("]")[1].replace(f"({TAG})", "").strip()
 
-        # Calculate end time (1 hour after start)
         from datetime import timedelta
         end_dt = dt + timedelta(hours=1)
         end_time_str = end_dt.strftime("%H:%M:%S")
         end_date_str = end_dt.strftime("%d/%m/%Y")
 
-        # Use team logos from streamcenter API (ESPN logos)
         team1_logo = data.get("logoTeam1", "")
         team2_logo = data.get("logoTeam2", "")
-
-        # Fallback to the generic logo if team logos are not available
         fallback_logo = data.get("logo", "https://github.com/falconcasthoster/images/blob/main/FalconCast.png?raw=true")
 
-        # Use team logos if available, otherwise use fallback
         teamA_flag = team1_logo if team1_logo else fallback_logo
         teamB_flag = team2_logo if team2_logo else fallback_logo
 
@@ -309,12 +290,8 @@ def export_m3u_to_file(filepath: str = "streams.m3u") -> None:
 async def main():
     """Main function to run the scraper."""
     await scrape()
-
-    # Export to files
     export_to_file("streams.json")
     export_m3u_to_file("streams.m3u")
-
-    # Print summary
     print(f"\n=== StreamCenter Scraper Summary ===")
     print(f"Total events collected: {len(urls)}")
     print(f"Files exported: streams.json, streams.m3u")
