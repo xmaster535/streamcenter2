@@ -1,9 +1,23 @@
 from functools import partial
 import json
+import importlib.util
 
+# Import selectolax
 from selectolax.parser import HTMLParser
 
-from .utils import Cache, Time, get_logger, leagues, network
+# Try relative import first (for package), fallback to absolute
+try:
+    from .utils import Cache, Time, get_logger, leagues, network
+except ImportError:
+    # For direct execution or GitHub Actions
+    spec = importlib.util.spec_from_file_location("utils", "utils.py")
+    utils = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(utils)
+    Cache = utils.Cache
+    Time = utils.Time
+    get_logger = utils.get_logger
+    leagues = utils.leagues
+    network = utils.network
 
 log = get_logger(__name__)
 
@@ -168,13 +182,105 @@ async def scrape() -> None:
 
 
 def export() -> str:
-    """Export URLs as JSON string."""
-    return json.dumps(urls, indent=2)
+    """Export URLs as JSON string in app format."""
+    return json.dumps(export_to_list(), indent=2)
 
 
 def export_to_file(filepath: str = "streams.json") -> None:
     """Export URLs to JSON file."""
     with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(urls, f, indent=2)
+        json.dump(export_to_list(), f, indent=2)
+    log.info(f"Exported {len(urls)} streams to {filepath}")
+
+
+def export_to_list() -> list:
+    """Convert URLs dict to app-compatible list format."""
+    result = []
+    for key, data in urls.items():
+        # Parse sport from key [Sport] Event (TAG)
+        sport = key.split("]")[0].replace("[", "").strip()
+
+        # Get time from timestamp
+        ts = data.get("timestamp", 0)
+        from datetime import datetime, timezone
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        time_str = dt.strftime("%H:%M:%S")
+        date_str = dt.strftime("%d/%m/%Y")
+
+        # Build full link with headers
+        m3u8_url = data.get("url", "")
+        referer = data.get("referer", "https://streamcenter.xyz")
+        origin = data.get("origin", "https://streamcenter.xyz")
+
+        full_link = (
+            f"{m3u8_url}"
+            f"|User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            f"(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0"
+            f"&Referer={referer}"
+            f"&Origin={origin}"
+        )
+
+        # Get event name without sport tag
+        event_name = key.split("]")[1].replace(f"({TAG})", "").strip()
+
+        # Calculate end time (1 hour after start)
+        from datetime import timedelta
+        end_dt = dt + timedelta(hours=1)
+        end_time_str = end_dt.strftime("%H:%M:%S")
+        end_date_str = end_dt.strftime("%d/%m/%Y")
+
+        entry = {
+            "category": "Live Events",
+            "date": date_str,
+            "end_date": end_date_str,
+            "end_time": end_time_str,
+            "eventName": event_name,
+            "link_names": ["DlSports"],
+            "streaming_links": [
+                {
+                    "api": "",
+                    "link": full_link,
+                    "name": "DlSports"
+                }
+            ],
+            "teamAFlag": "https://github.com/falconcasthoster/images/blob/main/FalconCast.png?raw=true",
+            "teamAName": f"[{sport}] {event_name}",
+            "teamBFlag": "https://github.com/falconcasthoster/images/blob/main/FalconCast.png?raw=true",
+            "teamBName": "",
+            "time": time_str
+        }
+        result.append(entry)
+
+    return result
+
+
+def export_m3u() -> str:
+    """Export URLs as M3U playlist with referer and origin headers."""
+    lines = ["#EXTM3U", ""]
+    for key, data in urls.items():
+        sport = key.split("]")[0].replace("[", "").strip()
+        event_name = key.split("]")[1].replace(f"({TAG})", "").strip()
+        m3u8_url = data.get("url", "")
+        referer = data.get("referer", "https://streamcenter.xyz")
+        origin = data.get("origin", "https://streamcenter.xyz")
+
+        if m3u8_url:
+            full_link = (
+                f"{m3u8_url}"
+                f"|User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                f"(KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36 Edg/134.0.0.0"
+                f"&Referer={referer}"
+                f"&Origin={origin}"
+            )
+            lines.append(f'#EXTINF:-1 tvg-name="{event_name}" tvg-id="{sport}" group-title="Live Sports",{event_name}')
+            lines.append(full_link)
+
+    return "\n".join(lines)
+
+
+def export_m3u_to_file(filepath: str = "streams.m3u") -> None:
+    """Export URLs to M3U playlist file."""
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(export_m3u())
     log.info(f"Exported {len(urls)} streams to {filepath}")
 
