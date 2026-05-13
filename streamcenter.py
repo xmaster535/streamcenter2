@@ -88,7 +88,8 @@ async def get_events() -> list[dict[str, str]]:
 
     now = Time.clean(Time.now())
 
-    api_data: list[dict] = r.json()
+    # r is already a list (JSON decoded), not a response object
+    api_data: list[dict] = r
 
     for stream_group in api_data:
         category_id: int = stream_group.get("categoryId")
