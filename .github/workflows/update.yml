@@ -1,0 +1,72 @@
+name: Auto Update Streams
+
+on:
+  # Run every 5 minutes
+  schedule:
+    - cron: '*/5 * * * *'
+
+  # Run on push to main branch
+  push:
+    branches: [main]
+
+  # Run manually from GitHub Actions tab
+  workflow_dispatch:
+
+  # Also trigger on repository dispatch (for external triggers)
+  repository_dispatch:
+    types: [update-streams]
+
+jobs:
+  update-streams:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install aiohttp selectolax
+
+      - name: Run scraper
+        run: |
+          python streamcenter.py
+
+      - name: Check for changes
+        id: git_status
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push changes
+        if: steps.git_status.outputs.changes == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add streams.json streams.m3u
+          git commit -m "Auto-update: $(date +'%Y-%m-%d %H:%M:%S') - $(cat streams.json | python -c 'import json,sys;d=json.load(sys.stdin);print(f\"{len(d)} events\")')"
+          git push
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: streams
+          path: |
+            streams.json
+            streams.m3u
+          retention-days: 1
+
+      - name: Display summary
+        run: |
+          echo "=== Update Complete ==="
+          echo "Events in streams.json: $(cat streams.json | python -c 'import json,sys;d=json.load(sys.stdin);print(len(d))')"
+          echo "======================="
