@@ -40,7 +40,7 @@ jobs:
 
       - name: Run Script
         run: |
-          python "streamcenter (3).py"
+          python "streamcenter.py"
 
       - name: Commit files
         run: |
