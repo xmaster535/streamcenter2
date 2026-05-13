@@ -186,6 +186,7 @@ async def scrape() -> None:
 
     # Always export to file for GitHub Actions (even if empty)
     export_to_file("streams.json")
+    export_m3u_to_file("streams.m3u")
     log.info(f"Exported streams.json with {len(urls)} event(s)")
 
 
@@ -291,4 +292,10 @@ def export_m3u_to_file(filepath: str = "streams.m3u") -> None:
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(export_m3u())
     log.info(f"Exported {len(urls)} streams to {filepath}")
+
+
+# Entry point for command line execution
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(scrape())
 
