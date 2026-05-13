@@ -130,68 +130,63 @@ async def scrape() -> None:
         if valid_items:
             urls.update(valid_items)
             log.info(f"Loaded {len(urls)} event(s) from cache")
-            # Export from cache for GitHub Actions
-            if urls:
-                export_to_file("streams.json")
-                log.info("Exported streams.json from cache")
-            return
 
-    log.info('Scraping from "https://streamcenter.xyz"')
+    if not urls:
+        log.info('Scraping from "https://streamcenter.xyz"')
 
-    if events := await get_events():
-        log.info(f"Processing {len(events)} URL(s)")
+        if events := await get_events():
+            log.info(f"Processing {len(events)} URL(s)")
 
-        for i, ev in enumerate(events, start=1):
-            handler = partial(
-                process_event,
-                url=(link := ev["link"]),
-                url_num=i,
-            )
+            for i, ev in enumerate(events, start=1):
+                handler = partial(
+                    process_event,
+                    url=(link := ev["link"]),
+                    url_num=i,
+                )
 
-            url_data = await network.safe_process(
-                handler,
-                url_num=i,
-                semaphore=network.HTTP_S,
-                log=log,
-            )
+                url_data = await network.safe_process(
+                    handler,
+                    url_num=i,
+                    semaphore=network.HTTP_S,
+                    log=log,
+                )
 
-            sport, event, ts = (
-                ev["sport"],
-                ev["event"],
-                ev["timestamp"],
-            )
+                sport, event, ts = (
+                    ev["sport"],
+                    ev["event"],
+                    ev["timestamp"],
+                )
 
-            key = f"[{sport}] {event} ({TAG})"
+                key = f"[{sport}] {event} ({TAG})"
 
-            tvg_id, logo = leagues.get_tvg_info(sport, event)
+                tvg_id, logo = leagues.get_tvg_info(sport, event)
 
-            entry = {
-                "url": url_data.get("url") if url_data else None,
-                "referer": url_data.get("referer") if url_data else None,
-                "origin": url_data.get("origin") if url_data else None,
-                "logo": logo,
-                "base": "https://streamcenter.xyz",
-                "timestamp": ts,
-                "id": tvg_id or "Live.Event.us",
-                "link": link,
-            }
+                entry = {
+                    "url": url_data.get("url") if url_data else None,
+                    "referer": url_data.get("referer") if url_data else None,
+                    "origin": url_data.get("origin") if url_data else None,
+                    "logo": logo,
+                    "base": "https://streamcenter.xyz",
+                    "timestamp": ts,
+                    "id": tvg_id or "Live.Event.us",
+                    "link": link,
+                }
 
-            cached_urls[key] = entry
+                cached_urls[key] = entry
 
-            if url_data and url_data.get("url"):
-                urls[key] = entry
+                if url_data and url_data.get("url"):
+                    urls[key] = entry
 
-        log.info(f"Collected and cached {len(urls)} event(s)")
+            log.info(f"Collected and cached {len(urls)} event(s)")
 
-    else:
-        log.info("No events found")
+        else:
+            log.info("No events found")
 
-    CACHE_FILE.write(cached_urls)
+        CACHE_FILE.write(cached_urls)
 
-    # Always export to file for GitHub Actions
-    if urls:
-        export_to_file("streams.json")
-        log.info("Exported streams.json")
+    # Always export to file for GitHub Actions (even if empty)
+    export_to_file("streams.json")
+    log.info(f"Exported streams.json with {len(urls)} event(s)")
 
 
 def export() -> str:
